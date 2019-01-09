@@ -1,0 +1,1931 @@
+//
+// Copyright (C) 2012 David Eckhoff <eckhoff@cs.fau.de>
+//
+// Documentation for these modules is at http://veins.car2x.org/
+//
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program; if not, write to the Free Software
+// Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+//
+
+#include "veins/modules/mac/ieee80211p/Mac1609_4.h"
+#include <iterator>
+
+#include "veins/modules/phy/DeciderResult80211.h"
+#include "veins/base/phyLayer/PhyToMacControlInfo.h"
+#include "veins/modules/messages/PhyControlMessage_m.h"
+
+//#if OMNETPP_VERSION >= 0x500
+#define OWNER owner->
+//#else
+//#define OWNER
+//#endif
+
+#define DBG_MAC EV
+//#define DBG_MAC std::cerr << "[" << simTime().raw() << "] " << myId << " "
+
+Define_Module(Mac1609_4);
+
+ChannelBusyListenerWave * Mac1609_4::getChannelBusyWaveListener() {
+    return listenerWAVE;
+}
+
+ChannelLoadListenerEtsi * Mac1609_4::getChannelLoadListenerETSI() {
+    return listenerETSI;
+}
+
+void Mac1609_4::initialize(int stage) {
+    BaseMacLayer::initialize(stage);
+    if (stage == 0) {
+
+        phy11p = FindModule<Mac80211pToPhy11pInterface*>::findSubModule(
+                getParentModule());
+        assert(phy11p);
+        startTime = simTime();
+
+        //this is required to circumvent double precision issues with constants from CONST80211p.h
+        assert(simTime().getScaleExp() == -12);
+
+        sigChannelBusy = registerSignal("sigChannelBusy");
+        sigCollision = registerSignal("sigCollision");
+
+        n_dbps = 0;
+
+        //mac-adresses
+        myMacAddress = intuniform(0, 0xFFFFFFFE);
+        myId = getParentModule()->getParentModule()->getFullPath();
+
+        beaconWAVE =
+                getParentModule()->getParentModule()->par("beaconWAVE").boolValue();
+        beaconETSI =
+                getParentModule()->getParentModule()->par("beaconETSI").boolValue();
+
+        testCaseNumber = getParentModule()->getParentModule()->par(
+                "testCaseNumber").doubleValue();
+
+        myEDCA[type_CCH] = new EDCA(this, type_CCH,
+                par("queueSize").longValue());
+
+        myEDCA[type_CCH]->myId = myId;
+        myEDCA[type_CCH]->myId.append(" CCH");
+
+        myEDCA[type_SCH] = new EDCA(this, type_SCH,
+                par("queueSize").longValue());
+        myEDCA[type_SCH]->myId = myId;
+        myEDCA[type_SCH]->myId.append(" SCH");
+
+        if (beaconWAVE) {
+
+            //create frequency mappings
+//            frequency.insert(
+//                    std::pair<int, double>(Channels::CRIT_SOL, 5.86e9));
+//            frequency.insert(std::pair<int, double>(Channels::CCH, 5.89e9));
+            frequency.insert(
+                    std::pair<int, double>(Channels::CRIT_SOL, 5.89e9));
+            frequency.insert(std::pair<int, double>(Channels::CCH, 5.86e9));
+            frequency.insert(std::pair<int, double>(Channels::SCH1, 5.87e9));
+            frequency.insert(std::pair<int, double>(Channels::SCH2, 5.88e9));
+            frequency.insert(std::pair<int, double>(Channels::SCH3, 5.90e9));
+            frequency.insert(std::pair<int, double>(Channels::SCH4, 5.91e9));
+            frequency.insert(std::pair<int, double>(Channels::HPPS, 5.92e9));
+
+            //params set as described in SAE J2945, Page 58, 6.3.4
+            //BSM with critical flag is AC_VO, else it is AC_VI
+            //CCH
+            myEDCA[type_CCH]->createQueue(2, 3, 7, AC_VO);
+            myEDCA[type_CCH]->createQueue(4, CWMIN_11P, CWMAX_11P, AC_VI);
+            myEDCA[type_CCH]->createQueue(6, CWMIN_11P, CWMAX_11P, AC_BE);
+            myEDCA[type_CCH]->createQueue(9, CWMIN_11P, CWMAX_11P, AC_BK);
+
+            //SCH --> no changes, is never used
+            myEDCA[type_SCH]->createQueue(2, 3, 7, AC_VO);
+            myEDCA[type_SCH]->createQueue(4, CWMIN_11P, CWMAX_11P, AC_VI);
+            myEDCA[type_SCH]->createQueue(6, CWMIN_11P, CWMAX_11P, AC_BE);
+            myEDCA[type_SCH]->createQueue(9, CWMIN_11P, CWMAX_11P, AC_BK);
+
+            txPower = FWMath::dBm2mW(par("txPowerWAVE").doubleValue());
+            bitrate = par("bitrateWAVE").doubleValue();
+
+            //needed for calculation CBP in BaseWaveAppLayer
+            listenerWAVE = new ChannelBusyListenerWave(this);
+            subscribe(sigChannelBusy, listenerWAVE);
+            listenerETSI = nullptr;
+            //
+
+            txPowerInDBMVec.setName("TXPower in dBm");
+            txPowerInMWVec.setName("TXPower in mW");
+            carrierSenseVec.setName("CarrierSense in dBm");
+            datarateVec.setName("Datarate in Mbps");
+            nextMacEventTime.setName("Next Mac Event Time");
+
+            //Validation
+            TestCaseHandler::getDescription(testCaseNumber);
+            if (strcmp(getParentModule()->getParentModule()->getFullName(),
+                    "node[0]") == 0) {
+
+                std::cerr << " WAVE Mode " << testCaseNumber << " "
+                        << TestCaseHandler::getDescription(testCaseNumber)
+                        << std::endl;
+
+                if (useSCH) {
+                    std::cerr << "Service Channel ON" << std::endl;
+                } else {
+                    std::cerr << "Service Channel OFF" << std::endl;
+                }
+            }
+
+        } else if (beaconETSI) {
+
+            //create frequency mappings
+            frequency.insert(
+                    std::pair<int, double>(Channels::SCH1_ETSI, 5.86e9));
+            frequency.insert(
+                    std::pair<int, double>(Channels::SCH2_ETSI, 5.87e9));
+            frequency.insert(
+                    std::pair<int, double>(Channels::SCH3_ETSI, 5.88e9));
+            frequency.insert(
+                    std::pair<int, double>(Channels::SCH4_ETSI, 5.89e9));
+            frequency.insert(
+                    std::pair<int, double>(Channels::CCH_ETSI, 5.90e9));
+
+            listenerWAVE = nullptr;
+
+            bitrate = par("NDL_defDatarate").doubleValue();
+            //txPower = par("NDL_defTxPower").doubleValue();
+            NDL_defPacketInterval = par("NDL_defPacketInterval").doubleValue();
+            NDL_timeUp = par("NDL_timeUp").doubleValue();
+            NDL_timeDown = par("NDL_timeDown").doubleValue();
+
+            //NEW
+            NDL_defTxPowerRelaxed = par("NDL_defTxPowerRelaxed").doubleValue();
+            NDL_defTxPowerActiveVI =
+                    par("NDL_defTxPowerActiveVI").doubleValue();
+            NDL_defTxPowerActiveBE =
+                    par("NDL_defTxPowerActiveBE").doubleValue();
+            NDL_defTxPowerRelaxedAC_BE =
+                    par("NDL_defTxPowerRelaxedAC_BE").doubleValue();
+            NDL_defTxPowerActiveBK =
+                    par("NDL_defTxPowerActiveBK").doubleValue();
+            NDL_defTxPowerRestrictive =
+                    par("NDL_defTxPowerRestrictive").doubleValue();
+            //NEW
+
+            NDL_defDatarate = par("NDL_defDatarate").doubleValue();
+            NDL_minDatarate = par("NDL_minDatarate").doubleValue();
+            NDL_maxDatarate = par("NDL_maxDatarate").doubleValue();
+            NDL_minPacketInterval = par("NDL_minPacketInterval").doubleValue();
+            NDL_maxPacketInterval = par("NDL_maxPacketInterval").doubleValue();
+            NDL_maxPacketDuration = par("NDL_maxPacketDuration").doubleValue();
+            NDL_defCarrierSense = par("NDL_defCarrierSense").doubleValue();
+            NDL_minCarrierSense = par("NDL_minCarrierSense").doubleValue();
+            NDL_maxCarrierSense = par("NDL_maxCarrierSense").doubleValue();
+            NDL_minChannelLoad = par("NDL_minChannelLoad").doubleValue();
+            NDL_maxChannelLoad = par("NDL_maxChannelLoad").doubleValue();
+            NDL_refPacketInterval = NDL_defPacketInterval;
+            NDL_queueLength = par("NDL_queueLength").longValue();
+
+            timer_NDL_timeUp = new cMessage("timeUp");
+            timer_NDL_timeDown = new cMessage("timeDown");
+            timer_DCC_Toff = new cMessage("dccToff");
+
+            totalChannelLoadTime = 0.0;
+            lastTimeChannelLoadTimeUpCalculated = 0;
+            lastTimePacketSent = 0;
+
+            cbpVec.setName("ChannelLoad");
+            busyTimeVec.setName("busyTime in Mac");
+            txPowerInDBMVec.setName("TXPower in dBm");
+            txPowerInMWVec.setName("TXPower in mW");
+            carrierSenseVec.setName("CarrierSense in dBm");
+            datarateVec.setName("Datarate in Mbps");
+            packetIntervalVec.setName("PaketInterval in s");
+            sentPacketVec.setName("Sent Packets time");
+            stateVec.setName("State Vec, 0=RELAXED, 1=ACTIVE, 2=RESTRICTIVE");
+            nextMacEventTime.setName("Next Mac Event Time");
+            useGateKeeping = par("useGateKeeping").boolValue();
+            lastTimePacketQueued = 0;
+            statsLifeTimeDropPackets = 0;
+
+            if (useGateKeeping && par("useDCCProfileCAM").boolValue()) {
+                throw cRuntimeError(
+                        "Not possible to run gatekeeping and dccprofile!");
+            }
+
+            if (useGateKeeping) {
+                std::cerr << "GateKeeper on" << std::endl;
+            }
+
+            countRelaxed = 0;
+            countActive = 0;
+            countRestrictive = 0;
+
+            //init DCC States
+            //TODO add States in dependency to AC
+            initializeDCCStates();
+            //
+
+            //use DCCProfileCAM TODO
+            if (par("useDCCProfileCAM").boolValue()) {
+                relaxed.packetInterval = par(
+                        "NDL_maxPacketIntervalDCCProfileRELAXED").doubleValue();
+                relaxedAC_VO.packetInterval = relaxed.packetInterval;
+                relaxedAC_VI.packetInterval = relaxed.packetInterval;
+                relaxedAC_BE.packetInterval = relaxed.packetInterval;
+                relaxedAC_BK.packetInterval = relaxed.packetInterval;
+
+                active.packetInterval = par(
+                        "NDL_maxPacketIntervalDCCProfileACTIVE").doubleValue();
+                activeAC_VO.packetInterval = active.packetInterval;
+                activeAC_VI.packetInterval = active.packetInterval;
+                activeAC_BE.packetInterval = active.packetInterval;
+                activeAC_BK.packetInterval = active.packetInterval;
+
+                restrictive.packetInterval =
+                        par("NDL_maxPacketIntervalDCCProfileRESTRICTIVE").doubleValue();
+                restrictiveAC_VO.packetInterval = restrictive.packetInterval;
+                restrictiveAC_VI.packetInterval = restrictive.packetInterval;
+                restrictiveAC_BE.packetInterval = restrictive.packetInterval;
+                restrictiveAC_BK.packetInterval = restrictive.packetInterval;
+
+                NDL_minPacketInterval = relaxed.packetInterval;
+                NDL_maxPacketInterval = restrictive.packetInterval;
+                std::cerr << "DCC Profile " << std::endl;
+            }
+            //
+
+            //
+            // EN 302 663 V1.2.1 (2013-07), TS 102 636-4-2 V1.1.1 (2013-10)
+            myEDCA[type_CCH]->createQueue(2, 3, 7, AC_VO);
+            myEDCA[type_CCH]->createQueue(3, 7, 15, AC_VI);
+            myEDCA[type_CCH]->createQueue(6, 15, 1023, AC_BE);
+            myEDCA[type_CCH]->createQueue(9, 15, 1023, AC_BK);
+
+            //no changes to SCH --> is never used
+            myEDCA[type_SCH]->createQueue(2, (((CWMIN_11P + 1) / 4) - 1),
+                    (((CWMIN_11P + 1) / 2) - 1), AC_VO);
+            myEDCA[type_SCH]->createQueue(3, (((CWMIN_11P + 1) / 2) - 1),
+                    (((CWMIN_11P + 1) / 2) - 1), AC_VI);
+            myEDCA[type_SCH]->createQueue(6, (((CWMIN_11P + 1) / 2) - 1),
+                    CWMIN_11P, AC_BE);
+            myEDCA[type_SCH]->createQueue(9, CWMIN_11P, CWMAX_11P, AC_BK);
+
+            timer_NDL_channelLoad = new cMessage("ChannelLoadTimer");
+            channelLoadTimer = par("channelLoadTimer").doubleValue();
+            listenerETSI = new ChannelLoadListenerEtsi(this,
+                    &NDL_refPacketInterval, useGateKeeping);
+            subscribe(sigChannelBusy, listenerETSI);
+            scheduleAt(simTime() + channelLoadTimer, timer_NDL_channelLoad);
+
+            //
+
+            if (strcmp(getParentModule()->getParentModule()->getFullName(),
+                    "node[0]") == 0) {
+
+                std::cerr << "ETSI Mode " << testCaseNumber
+                        << TestCaseHandler::getDescription(testCaseNumber)
+                        << std::endl;
+
+                if (useSCH) {
+                    std::cerr << "Service Channel ON" << std::endl;
+                } else {
+                    std::cerr << "Service Channel OFF channelLoadTimer "
+                            << channelLoadTimer << std::endl;
+                }
+                if (testCaseNumber > 0) {
+                    std::cerr << " Test Case with Number " << testCaseNumber
+                            << std::endl;
+                }
+            }
+
+            // initial State is relaxed
+            setDCCState(0.0, false);
+
+        } else {
+
+            //create frequency mappings
+            frequency.insert(
+                    std::pair<int, double>(Channels::CRIT_SOL, 5.86e9));
+            frequency.insert(std::pair<int, double>(Channels::SCH1, 5.87e9));
+            frequency.insert(std::pair<int, double>(Channels::SCH2, 5.88e9));
+            frequency.insert(std::pair<int, double>(Channels::CCH, 5.89e9));
+            frequency.insert(std::pair<int, double>(Channels::SCH3, 5.90e9));
+            frequency.insert(std::pair<int, double>(Channels::SCH4, 5.91e9));
+            frequency.insert(std::pair<int, double>(Channels::HPPS, 5.92e9));
+
+            //CCH
+            myEDCA[type_CCH]->createQueue(2, (((CWMIN_11P + 1) / 4) - 1),
+                    (((CWMIN_11P + 1) / 2) - 1), AC_VO);
+            myEDCA[type_CCH]->createQueue(3, (((CWMIN_11P + 1) / 2) - 1),
+                    CWMIN_11P, AC_VI);
+            myEDCA[type_CCH]->createQueue(6, CWMIN_11P, CWMAX_11P, AC_BE);
+            myEDCA[type_CCH]->createQueue(9, CWMIN_11P, CWMAX_11P, AC_BK);
+
+            //SCH
+            myEDCA[type_SCH]->createQueue(2, (((CWMIN_11P + 1) / 4) - 1),
+                    (((CWMIN_11P + 1) / 2) - 1), AC_VO);
+            myEDCA[type_SCH]->createQueue(3, (((CWMIN_11P + 1) / 2) - 1),
+                    CWMIN_11P, AC_VI);
+            myEDCA[type_SCH]->createQueue(6, CWMIN_11P, CWMAX_11P, AC_BE);
+            myEDCA[type_SCH]->createQueue(9, CWMIN_11P, CWMAX_11P, AC_BK);
+            txPower = par("txPower").doubleValue();
+            bitrate = par("bitrate").longValue();
+        }
+        setParametersForBitrate(bitrate);
+
+        useSCH = par("useServiceChannel").boolValue();
+        if (useSCH) {
+            //set the initial service channel
+            switch (par("serviceChannel").longValue()) {
+            case 1:
+                mySCH = Channels::SCH1;
+                break;
+            case 2:
+                mySCH = Channels::SCH2;
+                break;
+            case 3:
+                mySCH = Channels::SCH3;
+                break;
+            case 4:
+                mySCH = Channels::SCH4;
+                break;
+            default:
+                throw cRuntimeError("Service Channel must be between 1 and 4");
+                break;
+            }
+        }
+
+        headerLength = par("headerLength");
+        nextMacEvent = new cMessage("next Mac Event");
+
+        if (useSCH) {
+            // introduce a little asynchronization between radios, but no more than .3 milliseconds
+            uint64_t currenTime = simTime().raw();
+            uint64_t switchingTime = SWITCHING_INTERVAL_11P.raw();
+            double timeToNextSwitch = (double) (switchingTime
+                    - (currenTime % switchingTime)) / simTime().getScale();
+            if ((currenTime / switchingTime) % 2 == 0) {
+                setActiveChannel(type_CCH);
+            } else {
+                setActiveChannel(type_SCH);
+            }
+
+            // channel switching active
+            nextChannelSwitch = new cMessage("Channel Switch");
+            simtime_t offset = dblrand() * par("syncOffset").doubleValue();
+            scheduleAt(simTime() + offset + timeToNextSwitch,
+                    nextChannelSwitch);
+        } else {
+            // no channel switching
+            nextChannelSwitch = 0;
+            setActiveChannel(type_CCH);
+        }
+
+        //stats
+        statsReceivedPackets = 0;
+        statsReceivedBroadcasts = 0;
+        statsSentPackets = 0;
+        statsTXRXLostPackets = 0;
+        statsSNIRLostPackets = 0;
+        statsDroppedPackets = 0;
+        statsNumTooLittleTime = 0;
+        statsNumInternalContention = 0;
+        statsNumBackoff = 0;
+        statsSlotsBackoff = 0;
+        statsTotalBusyTime = 0;
+
+        idleChannel = true;
+        lastBusy = simTime();
+        channelIdle(true);
+
+    }
+
+}
+
+void Mac1609_4::initializeDCCStates() {
+//    *.**.nic.mac1609_4.NDL_defCarrierSense = -85dBm # NDL_defCarrierSense, means the CCA Threshold!!! BasePhyLayer sensitivity and PhyLayer80211p ccaThreshold
+//    *.**.nic.mac1609_4.NDL_minCarrierSense = -95dBm
+//    *.**.nic.mac1609_4.NDL_maxCarrierSense = -65dBm
+//    *.**.nic.phy80211p.NDL_defDccSensitivity = -85dBm # -85 original
+//
+//    *.**.nic.mac1609_4.NDL_defTxPowerRelaxed = 33dBm
+//    *.**.nic.mac1609_4.NDL_defTxPowerActiveVI = 25dBm
+//    *.**.nic.mac1609_4.NDL_defTxPowerActiveBE = 20dBm
+//    *.**.nic.mac1609_4.NDL_defTxPowerRelaxedAC_BE = 23dBm
+//    *.**.nic.mac1609_4.NDL_defTxPowerActiveBK = 15dBm
+//    *.**.nic.mac1609_4.NDL_defTxPowerRestrictive = -10dBm
+//
+//    *.**.nic.mac1609_4.NDL_defDatarate = 6Mbps # --> bitrate
+//    *.**.nic.mac1609_4.NDL_minDatarate = 3Mbps # 3
+//    *.**.nic.mac1609_4.NDL_maxDatarate = 12Mbps # 12
+//
+//    *.**.nic.mac1609_4.NDL_defPacketInterval = 0.5s #
+//    *.**.nic.mac1609_4.NDL_minPacketInterval = 0.04s # 0.04 s
+//    *.**.nic.mac1609_4.NDL_maxPacketInterval = 1s # 1s
+//    *.**.nic.mac1609_4.NDL_maxPacketDuration = 0.0006s # 0.6 ms
+//
+//    *.**.nic.mac1609_4.NDL_minChannelLoad = 0.15 # 15%
+//    *.**.nic.mac1609_4.NDL_maxChannelLoad = 0.40 # 40%
+//
+//    *.**.nic.mac1609_4.NDL_timeUp = 1s
+//    *.**.nic.mac1609_4.NDL_timeDown = 5s
+    relaxed = State(StateType::RELAXED, NDL_defTxPowerRelaxed, NDL_minDatarate,
+            NDL_minPacketInterval, NDL_minCarrierSense);
+    relaxedAC_VO = State(StateType::RELAXED, NDL_defTxPowerRelaxed,
+            NDL_minDatarate, NDL_minPacketInterval, NDL_minCarrierSense);
+    relaxedAC_VI = State(StateType::RELAXED, NDL_defTxPowerRelaxed,
+            NDL_minDatarate, NDL_minPacketInterval, NDL_minCarrierSense);
+    relaxedAC_BE = State(StateType::RELAXED, NDL_defTxPowerRelaxedAC_BE,
+            NDL_minDatarate, NDL_minPacketInterval, NDL_minCarrierSense);
+    relaxedAC_BK = State(StateType::RELAXED, NDL_defTxPowerRelaxed,
+            NDL_minDatarate, NDL_minPacketInterval, NDL_minCarrierSense);
+
+    active = State(StateType::ACTIVE, NDL_defTxPowerRelaxed, NDL_minDatarate,
+            NDL_minPacketInterval, NDL_minCarrierSense);
+    activeAC_VO = State(StateType::ACTIVE, NDL_defTxPowerRelaxed,
+            NDL_minDatarate, NDL_minPacketInterval, NDL_minCarrierSense);
+    activeAC_VI = State(StateType::ACTIVE, NDL_defTxPowerActiveVI,
+            NDL_minDatarate, NDL_minPacketInterval, NDL_minCarrierSense);
+    activeAC_BE = State(StateType::ACTIVE, NDL_defTxPowerActiveBE,
+            NDL_minDatarate, NDL_minPacketInterval, NDL_minCarrierSense);
+    activeAC_BK = State(StateType::ACTIVE, NDL_defTxPowerActiveBK,
+            NDL_minDatarate, NDL_minPacketInterval, NDL_minCarrierSense);
+
+    restrictive = State(StateType::RESTRICTIVE, NDL_defTxPowerRestrictive,
+            NDL_maxDatarate, NDL_maxPacketInterval, NDL_maxCarrierSense);
+    restrictiveAC_VO = State(StateType::RESTRICTIVE, NDL_defTxPowerRestrictive,
+            NDL_maxDatarate, NDL_maxPacketInterval, NDL_maxCarrierSense);
+    restrictiveAC_VI = State(StateType::RESTRICTIVE, NDL_defTxPowerRestrictive,
+            NDL_maxDatarate, NDL_maxPacketInterval, NDL_maxCarrierSense);
+    restrictiveAC_BE = State(StateType::RESTRICTIVE, NDL_defTxPowerRestrictive,
+            NDL_maxDatarate, NDL_maxPacketInterval, NDL_maxCarrierSense);
+    restrictiveAC_BK = State(StateType::RESTRICTIVE, NDL_defTxPowerRestrictive,
+            NDL_maxDatarate, NDL_maxPacketInterval, NDL_maxCarrierSense);
+
+    currentState = nullptr;
+}
+
+void Mac1609_4::cancelNDLTimerUpAndDown() {
+
+    if (timer_NDL_timeUp->isScheduled()) {
+        cancelEvent(timer_NDL_timeUp);
+    }
+    if (timer_NDL_timeDown->isScheduled()) {
+        cancelEvent(timer_NDL_timeDown);
+    }
+}
+
+void Mac1609_4::setStateParams(State & state) {
+
+    //currentState = &state;
+    this->setCCAThreshold(state.carrierSense);
+    //this->setTxPower(FWMath::dBm2mW(state.txPower));
+    this->bitrate = state.datarate;
+    NDL_refPacketInterval = state.packetInterval;
+
+    BaseWaveApplLayer * appLayer =
+            FindModule<BaseWaveApplLayer*>::findSubModule(
+                    getParentModule()->getParentModule());
+
+    appLayer->setPaketInterval(NDL_refPacketInterval, false);
+}
+
+void Mac1609_4::setDCCState(double channelLoad, bool downFlag) {
+
+    //set initial values
+    if (currentState == nullptr) {
+
+        cancelNDLTimerUpAndDown();
+
+        currentState = &relaxed;
+        setStateParams(relaxed);
+        if (simTime() >= startTime + 6)
+            stateVec.record(0);
+
+        scheduleAt(simTime() + NDL_timeUp, timer_NDL_timeUp);
+        //set the timer
+
+    } else if (currentState->stateType == RELAXED) {
+        if (simTime() >= startTime + 6)
+            countRelaxed++;
+        if (simTime() >= startTime + 6)
+            stateVec.record(0);
+
+        ASSERT(!downFlag);
+
+        //downFlag --> true, if method is called after NDL_timeDown interval
+        if (channelLoad >= NDL_minChannelLoad) {
+
+            //cancel NDL_timers
+            cancelNDLTimerUpAndDown();
+
+            //set params to ACTIVE State
+            currentState = &active;
+            //setStateParams(active);
+            if (simTime() >= startTime + 6)
+                stateVec.record(1);
+            //
+
+            //schedule timers
+            scheduleAt(simTime() + NDL_timeUp, timer_NDL_timeUp);
+            scheduleAt(simTime() + NDL_timeDown, timer_NDL_timeDown);
+
+        } else {
+            //else do nothing, Stay in relaxed State --> timeUp interval remains
+            cancelNDLTimerUpAndDown();
+            scheduleAt(simTime() + NDL_timeUp, timer_NDL_timeUp);
+        }
+
+    } else if (currentState->stateType == ACTIVE) {
+        if (simTime() >= startTime + 6) {
+            countActive++;
+            stateVec.record(1);
+        }
+
+        //5s and lower than minChannelLoad --> set State to RELAXED
+        if (downFlag && channelLoad < NDL_minChannelLoad) {
+
+            cancelNDLTimerUpAndDown();
+
+            // set State to RELAXED
+            currentState = &relaxed;
+            setStateParams(relaxed);
+            if (simTime() >= startTime + 6)
+                stateVec.record(0);
+            //
+            scheduleAt(simTime() + NDL_timeUp, timer_NDL_timeUp);
+            return;
+        }
+
+        //--> new State is RESTRICTIVE
+        //after 1 s channelLoad is larger than maxChannelload
+        else if (!downFlag && channelLoad >= NDL_maxChannelLoad) {
+
+            cancelNDLTimerUpAndDown();
+
+            //set State to RESTRICTIVE
+            currentState = &restrictive;
+            setStateParams(restrictive);
+            if (simTime() >= startTime + 6)
+                stateVec.record(2);
+            //schedule timers
+
+            scheduleAt(simTime() + NDL_timeDown, timer_NDL_timeDown);
+            return;
+        }
+
+        else if (downFlag) {
+            //after 5 seconds stay in active state --> reschedule
+
+            if (timer_NDL_timeDown->isScheduled()) {
+                cancelEvent(timer_NDL_timeDown);
+            }
+
+            scheduleAt(simTime() + NDL_timeDown, timer_NDL_timeDown);
+            return;
+
+        } else if (!downFlag) {
+
+            //after 1 s
+            if (timer_NDL_timeUp->isScheduled()) {
+                cancelEvent(timer_NDL_timeUp);
+            }
+            scheduleAt(simTime() + NDL_timeUp, timer_NDL_timeUp);
+            return;
+
+        }
+    }
+
+    else if (currentState->stateType == RESTRICTIVE) {
+        if (simTime() >= startTime + 6)
+            countRestrictive++;
+        if (simTime() >= startTime + 6)
+            stateVec.record(2);
+
+        ASSERT(downFlag);
+
+        // after 5s channelLoad lower than maxchannelload --> switch to ACTIVE State
+        if (downFlag && channelLoad < NDL_maxChannelLoad) {
+
+            cancelNDLTimerUpAndDown();
+
+            //set ACTIVE State
+            currentState = &active;
+            //setStateParams(active);
+            if (simTime() >= startTime + 6)
+                stateVec.record(1);
+
+            //schedule  timer
+            scheduleAt(simTime() + NDL_timeUp, timer_NDL_timeUp);
+            scheduleAt(simTime() + NDL_timeDown, timer_NDL_timeDown);
+
+        } else {
+            cancelNDLTimerUpAndDown();
+            scheduleAt(simTime() + NDL_timeDown, timer_NDL_timeDown);
+        }
+
+    } else {
+        if (strcmp(getParentModule()->getParentModule()->getFullName(),
+                "node[0]") == 0) {
+            std::cerr << getParentModule()->getParentModule()->getFullName()
+                    << "ERROR SetDCCState Time " << simTime() << " channelLoad "
+                    << channelLoad << " downFlag " << downFlag
+                    << " currentState " << currentState->stateType << std::endl;
+        }
+    }
+
+}
+
+void Mac1609_4::determineTxPower() {
+    //TODO use AC to set correct VALUES
+
+    std::cout << lastAC << std::endl;
+
+    switch (lastAC) {
+    case AC_VO:
+        if (currentState->stateType == RELAXED) {
+            this->setTxPower(FWMath::dBm2mW(relaxedAC_VO.txPower));
+        } else if (currentState->stateType == ACTIVE) {
+            this->setTxPower(FWMath::dBm2mW(activeAC_VO.txPower));
+        } else if (currentState->stateType == RESTRICTIVE) {
+            this->setTxPower(FWMath::dBm2mW(restrictiveAC_VO.txPower));
+        } else {
+            throw cRuntimeError("Unknown DCC State");
+        }
+        break;
+    case AC_VI:
+        if (currentState->stateType == RELAXED) {
+            this->setTxPower(FWMath::dBm2mW(relaxedAC_VI.txPower));
+        } else if (currentState->stateType == ACTIVE) {
+            this->setTxPower(FWMath::dBm2mW(activeAC_VI.txPower));
+        } else if (currentState->stateType == RESTRICTIVE) {
+            this->setTxPower(FWMath::dBm2mW(restrictiveAC_VI.txPower));
+        } else {
+            throw cRuntimeError("Unknown DCC State");
+        }
+        break;
+    case AC_BK:
+        if (currentState->stateType == RELAXED) {
+            this->setTxPower(FWMath::dBm2mW(relaxedAC_BK.txPower));
+        } else if (currentState->stateType == ACTIVE) {
+            this->setTxPower(FWMath::dBm2mW(activeAC_BK.txPower));
+        } else if (currentState->stateType == RESTRICTIVE) {
+            this->setTxPower(FWMath::dBm2mW(restrictiveAC_BK.txPower));
+        } else {
+            throw cRuntimeError("Unknown DCC State");
+        }
+        break;
+    case AC_BE:
+        if (currentState->stateType == RELAXED) {
+            this->setTxPower(FWMath::dBm2mW(relaxedAC_BE.txPower));
+        } else if (currentState->stateType == ACTIVE) {
+            this->setTxPower(FWMath::dBm2mW(activeAC_BE.txPower));
+        } else if (currentState->stateType == RESTRICTIVE) {
+            this->setTxPower(FWMath::dBm2mW(restrictiveAC_BE.txPower));
+        } else {
+            throw cRuntimeError("Unknown DCC State");
+        }
+        break;
+    default:
+        throw cRuntimeError("MacLayer received a packet with unknown priority");
+        break;
+    }
+
+    std::cout << txPower << std::endl;
+}
+
+void Mac1609_4::handleSelfMsg(cMessage* msg) {
+
+    if (msg == nextChannelSwitch) {
+        ASSERT(useSCH);
+
+        scheduleAt(simTime() + SWITCHING_INTERVAL_11P, nextChannelSwitch);
+
+        switch (activeChannel) {
+        case type_CCH:
+            DBG_MAC << "CCH --> SCH" << std::endl;
+            channelBusySelf(false);
+            setActiveChannel(type_SCH);
+            channelIdle(true);
+            phy11p->changeListeningFrequency(frequency[mySCH]);
+            break;
+        case type_SCH:
+            DBG_MAC << "SCH --> CCH" << std::endl;
+            channelBusySelf(false);
+            setActiveChannel(type_CCH);
+            channelIdle(true);
+            phy11p->changeListeningFrequency(frequency[Channels::CCH]);
+            break;
+        }
+        //schedule next channel switch in 50ms
+
+    } else if (msg == nextMacEvent) {
+
+        //we actually came to the point where we can send a packet
+
+        channelBusySelf(true);
+
+        // save bitrate in WAVE Mode
+        if (beaconWAVE) {
+            if (simTime() >= startTime + 6)
+                datarateVec.record(bitrate);
+
+            BaseWaveApplLayer * appLayer =
+                    FindModule<BaseWaveApplLayer*>::findSubModule(
+                            getParentModule()->getParentModule());
+            setCCAThreshold(appLayer->getRxSens());
+        }
+
+        WaveShortMessage* pktToSend = myEDCA[activeChannel]->initiateTransmit(
+                lastIdle, beaconETSI);
+
+        lastAC = mapPriority(pktToSend->getPriority());
+
+        if (beaconETSI) {
+            //use AC to set correct VALUES
+            determineTxPower();
+            //
+        }
+
+        DBG_MAC << "MacEvent received. Trying to send packet with priority"
+                       << lastAC << std::endl;
+
+        //send the packet
+        Mac80211Pkt* mac = new Mac80211Pkt(pktToSend->getName(),
+                pktToSend->getKind());
+        mac->setDestAddr(LAddress::L2BROADCAST());
+        mac->setSrcAddr(myMacAddress);
+        mac->encapsulate(pktToSend->dup());
+
+        enum PHY_MCS mcs;
+        double txPower_mW;
+        uint64_t datarate;
+        PhyControlMessage *controlInfo =
+                dynamic_cast<PhyControlMessage *>(pktToSend->getControlInfo());
+        if (controlInfo) {
+            //if MCS is not specified, just use the default one
+            mcs = (enum PHY_MCS) controlInfo->getMcs();
+            if (mcs != MCS_DEFAULT) {
+                datarate = getOfdmDatarate(mcs, BW_OFDM_10_MHZ);
+            } else {
+                datarate = bitrate;
+            }
+            //apply the same principle to tx power
+            txPower_mW = controlInfo->getTxPower_mW();
+            if (txPower_mW < 0) {
+                txPower_mW = txPower;
+            }
+        } else {
+            mcs = MCS_DEFAULT;
+            txPower_mW = txPower;
+            datarate = bitrate;
+        }
+
+        ASSERT(mcs == MCS_DEFAULT);
+
+        //read txPower and datarate from packet
+//        if (beaconETSI) {
+//            datarate = pktToSend->getBitrate();
+////            if (simTime() >= startTime + 6)
+////                datarateVec.record(currentState->datarate);
+//        } else
+        if (beaconWAVE) {
+            txPower_mW = pktToSend->getTxPower();
+//            if (simTime() >= startTime + 6)
+//                datarateVec.record(datarate);
+        }
+
+//        ASSERT(txPower_mW > 0 && datarate > 0);
+//        if (simTime() >= startTime + 6)
+//            txPowerInMWVec.record(txPower_mW);
+
+        sendingDuration = RADIODELAY_11P
+                + getFrameDuration(mac->getBitLength(), mcs);
+
+        EV << "Sending duration will be" << sendingDuration << std::endl;
+
+        if ((!useSCH) || (timeLeftInSlot() > sendingDuration)) {
+            if (useSCH) {
+                EV << " Time in this slot left: " << timeLeftInSlot()
+                          << std::endl;
+            }
+            // give time for the radio to be in Tx state before transmitting
+            phy->setRadioState(Radio::TX);
+
+            double freq = 0.0;
+
+            if (beaconETSI) {
+                freq = (activeChannel == type_CCH) ?
+                        frequency[Channels::CCH_ETSI] : frequency[mySCH];
+            } else {
+                freq = (activeChannel == type_CCH) ?
+                        frequency[Channels::CCH] : frequency[mySCH];
+            }
+
+            attachSignal(mac, simTime() + RADIODELAY_11P, freq, datarate,
+                    txPower_mW);
+            MacToPhyControlInfo* phyInfo =
+                    dynamic_cast<MacToPhyControlInfo*>(mac->getControlInfo());
+            assert(phyInfo);
+            EV << "Sending a Packet. Frequency " << freq << " Priority"
+                      << lastAC << std::endl;
+
+            sendDelayed(mac, RADIODELAY_11P, lowerLayerOut);
+
+            if (beaconETSI) {
+                lastTimePacketSent = simTime();
+                if (simTime() >= startTime + 6)
+                    sentPacketVec.record(simTime());
+            }
+            if (simTime() >= startTime + 6)
+                statsSentPackets++;
+
+            if (strcmp(getParentModule()->getParentModule()->getFullName(),
+                    "node[0]") == 0 && testCaseNumber > 0) {
+                std::cout << getParentModule()->getParentModule()->getFullName()
+                        << " NextMacEvent at " << simTime() << " activeChannel "
+                        << activeChannel << " " << pktToSend->getName()
+                        << std::endl;
+            }
+
+        } else {   //not enough time left now
+            DBG_MAC
+                           << "Too little Time left. This packet cannot be send in this slot."
+                           << std::endl;
+
+            statsNumTooLittleTime++;
+            //revoke TXOP
+            myEDCA[activeChannel]->revokeTxOPs();
+            delete mac;
+            channelIdle();
+            //do nothing. contention will automatically start after channel switch
+        }
+    } else if (msg == timer_NDL_timeUp) {
+
+        if (lastTimeChannelLoadTimeUpCalculated == 0) {
+            lastTimeChannelLoadTimeUpCalculated = simTime();
+        }
+
+        double channelLoad = 0.0;
+
+        if (testCaseNumber == 0.0 || testCaseNumber == 1.6
+                || (testCaseNumber >= 8 && testCaseNumber <= 9.3)) {
+            channelLoad = listenerETSI->getMinChannelLoad(NDL_timeUp,
+                    channelLoadTimer);
+        } else {
+            channelLoad = TestCaseHandler::getTestValueETSI(testCaseNumber);
+        }
+
+        setDCCState(channelLoad, false);
+
+        if (testCaseNumber == 1.1)
+            ASSERT(currentState->stateType == RELAXED);
+
+    } else if (msg == timer_NDL_timeDown) {
+
+        if (lastTimeChannelLoadTimeUpCalculated == 0) {
+            lastTimeChannelLoadTimeUpCalculated = simTime();
+        }
+
+        double channelLoad = 0.0;
+
+        if (testCaseNumber == 0.0 || testCaseNumber == 1.6
+                || (testCaseNumber >= 8 && testCaseNumber <= 9.3)) {
+            channelLoad = listenerETSI->getMaxChannelLoad(NDL_timeDown,
+                    channelLoadTimer);
+        } else {
+
+            channelLoad = TestCaseHandler::getTestValueETSI(testCaseNumber);
+        }
+
+        setDCCState(channelLoad, true);
+
+        if (testCaseNumber == 1.1)
+            ASSERT(currentState->stateType == RELAXED);
+        else if (testCaseNumber == 1.2 || testCaseNumber == 1.3)
+            ASSERT(currentState->stateType == ACTIVE);
+
+    } else if (msg == timer_NDL_channelLoad) {
+
+        // addedTimesMap filled with busytimes
+        listenerETSI->calculateChannelLoad(channelLoadTimer,
+                totalChannelLoadTime, busyTimeVec, cbpVec, *currentState, false,
+                testCaseNumber, startTime);
+        lastTimeChannelLoadTimeUpCalculated = simTime();
+
+        if (useGateKeeping) {
+            //set the current Toff Value
+            BaseWaveApplLayer * appLayer =
+                    FindModule<BaseWaveApplLayer*>::findSubModule(
+                            getParentModule()->getParentModule());
+
+            packetIntervalVec.record(NDL_refPacketInterval);
+            appLayer->setPaketInterval(NDL_refPacketInterval, false);
+        }
+        //
+
+        scheduleAt(simTime() + channelLoadTimer, timer_NDL_channelLoad);
+
+    } else if (msg == timer_DCC_Toff) {
+
+        simtime_t currentTime = simTime();
+
+        if (testCaseNumber == 9.1) {
+            while (dccQueue.size() > 0) {
+                dccQueue.pop();
+            }
+            WaveShortMessage * temp = new WaveShortMessage("test");
+            temp->setTimestamp(0.1);
+            lastTimePacketQueued = 1;
+            NDL_refPacketInterval = 0.1;
+            currentTime = 1.11;
+            dccQueue.push(temp);
+        }
+
+        //DccFlowControl
+        //Toff is over, we're allowed to queue next packet
+        if (lastTimePacketQueued + NDL_refPacketInterval <= simTime()
+                || lastTimePacketQueued == 0) {
+
+            if (testCaseNumber == 9.1) {
+                ASSERT(dccQueue.size() == 1);
+            }
+
+            //queue packet to edca, if lifetime not exceeded
+            while (dccQueue.size() > 0) {
+
+                WaveShortMessage * thisMsg = dccQueue.front();
+
+                //lifetime of a CAM is 1s
+                if (thisMsg->getTimestamp() + 1 >= simTime()) {
+
+                    t_access_category ac = mapPriority(thisMsg->getPriority());
+
+                    DBG_MAC
+                                   << "Received a message from upper layer for channel "
+                                   << thisMsg->getChannelNumber()
+                                   << " Access Category (Priority):  " << ac
+                                   << std::endl;
+
+                    t_channel chan;
+                    //put this packet in its queue
+                    if (thisMsg->getChannelNumber() == Channels::CCH
+                            || thisMsg->getChannelNumber()
+                                    == Channels::CCH_ETSI) {
+                        chan = type_CCH;
+                    }
+
+                    int num = myEDCA[chan]->queuePacket(ac, thisMsg);
+
+                    //packet was dropped in Mac, cause EDCA Queue is full
+                    if (num == -1) {
+                        if (simTime() >= startTime + 6)
+                            statsDroppedPackets++;
+                        break;
+                    }
+
+                    //if this packet is not at the front of a new queue we dont have to reevaluate times
+                    DBG_MAC << "sorted packet into queue of EDCA " << chan
+                                   << " this packet is now at position: " << num
+                                   << std::endl;
+
+                    if (chan == activeChannel) {
+                        DBG_MAC
+                                       << "this packet is for the currently active channel"
+                                       << std::endl;
+                    } else {
+                        DBG_MAC
+                                       << "this packet is NOT for the currently active channel"
+                                       << std::endl;
+                    }
+
+                    if (num == 1 && idleChannel == true
+                            && chan == activeChannel) {
+
+                        nextEvent = myEDCA[chan]->startContent(lastIdle,
+                                guardActive());
+                        if (simTime() >= startTime + 6)
+                            nextMacEventTime.record(nextEvent);
+
+                        if (nextEvent != -1) {
+                            if ((!useSCH)
+                                    || (nextEvent
+                                            <= nextChannelSwitch->getArrivalTime())) {
+
+                                if (nextMacEvent->isScheduled()) {
+                                    cancelEvent(nextMacEvent);
+                                }
+
+                                scheduleAt(nextEvent, nextMacEvent);
+
+                                DBG_MAC << "Updated nextMacEvent:"
+                                               << nextMacEvent->getArrivalTime().raw()
+                                               << std::endl;
+                            } else {
+                                DBG_MAC
+                                               << "Too little time in this interval. Will not schedule nextMacEvent"
+                                               << std::endl;
+
+                                //it is possible that this queue has an txop. we have to revoke it
+                                myEDCA[activeChannel]->revokeTxOPs();
+
+                                statsNumTooLittleTime++;
+                            }
+                        } else {
+                            cancelEvent(nextMacEvent);
+                        }
+                    }
+                    if (num == 1 && idleChannel == false
+                            && myEDCA[chan]->myQueues[ac].currentBackoff == 0
+                            && chan == activeChannel) {
+                        myEDCA[chan]->backoff(ac, this);
+                    }
+
+                    //shows that this part is not executed in TestCase 9.1
+                    if (testCaseNumber == 9.1) {
+                        ASSERT(false);
+                    }
+
+                    dccQueue.pop();
+                    lastTimePacketQueued = simTime();
+                    break;
+                } else {
+                    if (simTime() >= startTime + 6)
+                        statsLifeTimeDropPackets++;
+                    dccQueue.pop();
+                    delete thisMsg;
+
+                    if (testCaseNumber == 9.1) {
+                        ASSERT(dccQueue.size() == 0);
+                    }
+                }
+            }
+        }
+        //else --> do nothing and wait until the next time Toff is over
+        if (testCaseNumber == 9.1) {
+            ASSERT(dccQueue.size() == 0);
+        }
+
+        if (dccQueue.size() > 0) {
+            scheduleAt(lastTimePacketQueued + NDL_refPacketInterval,
+                    timer_DCC_Toff);
+        }
+    }
+}
+
+void Mac1609_4::handleUpperControl(cMessage* msg) {
+    assert(false);
+}
+
+void Mac1609_4::handleUpperMsg(cMessage* msg) {
+
+    if (testCaseNumber == 9.2) {
+        WaveShortMessage * temp1 = new WaveShortMessage();
+        WaveShortMessage * temp2 = new WaveShortMessage();
+
+        while (dccQueue.size() > 0) {
+            dccQueue.pop();
+        }
+
+        dccQueue.push(temp1);
+        dccQueue.push(temp2);
+    }
+
+    WaveShortMessage* thisMsg;
+    if ((thisMsg = dynamic_cast<WaveShortMessage*>(msg)) == NULL) {
+        error("WaveMac only accepts WaveShortMessages");
+    }
+
+    if (!beaconETSI) {
+
+        t_access_category ac = mapPriority(thisMsg->getPriority());
+
+        DBG_MAC << "Received a message from upper layer for channel "
+                       << thisMsg->getChannelNumber()
+                       << " Access Category (Priority):  " << ac << std::endl;
+
+        t_channel chan;
+        //put this packet in its queue
+        if (thisMsg->getChannelNumber() == Channels::CCH
+                || thisMsg->getChannelNumber() == Channels::CCH_ETSI) {
+            chan = type_CCH;
+        }
+
+        int num = myEDCA[chan]->queuePacket(ac, thisMsg);
+
+        //packet was dropped in Mac
+        if (num == -1) {
+            if (simTime() >= startTime + 6)
+                statsDroppedPackets++;
+            return;
+        }
+
+        //if this packet is not at the front of a new queue we dont have to reevaluate times
+        DBG_MAC << "sorted packet into queue of EDCA " << chan
+                       << " this packet is now at position: " << num
+                       << std::endl;
+
+        if (chan == activeChannel) {
+            DBG_MAC << "this packet is for the currently active channel"
+                           << std::endl;
+        } else {
+            DBG_MAC << "this packet is NOT for the currently active channel"
+                           << std::endl;
+        }
+
+        if (num == 1 && idleChannel == true && chan == activeChannel) {
+
+            nextEvent = myEDCA[chan]->startContent(lastIdle, guardActive());
+            if (simTime() >= startTime + 6)
+                nextMacEventTime.record(nextEvent);
+
+            if (nextEvent != -1) {
+                if ((!useSCH)
+                        || (nextEvent <= nextChannelSwitch->getArrivalTime())) {
+
+                    if (nextMacEvent->isScheduled()) {
+                        cancelEvent(nextMacEvent);
+                    }
+
+                    scheduleAt(nextEvent, nextMacEvent);
+
+                    DBG_MAC << "Updated nextMacEvent:"
+                                   << nextMacEvent->getArrivalTime().raw()
+                                   << std::endl;
+                } else {
+                    DBG_MAC
+                                   << "Too little time in this interval. Will not schedule nextMacEvent"
+                                   << std::endl;
+
+                    //it is possible that this queue has an txop. we have to revoke it
+                    myEDCA[activeChannel]->revokeTxOPs();
+
+                    statsNumTooLittleTime++;
+                }
+            } else {
+                cancelEvent(nextMacEvent);
+            }
+        }
+        if (num == 1 && idleChannel == false
+                && myEDCA[chan]->myQueues[ac].currentBackoff == 0
+                && chan == activeChannel) {
+            myEDCA[chan]->backoff(ac, this);
+        }
+
+        //ETSI uses DCCQueue and FlowControl
+    } else {
+
+        if (dccQueue.size() < NDL_queueLength) {
+            dccQueue.push(thisMsg);
+            if (timer_DCC_Toff->isScheduled()) {
+                cancelEvent(timer_DCC_Toff);
+            }
+            //DccFlowControl
+            scheduleAt(simTime(), timer_DCC_Toff);
+        } else {
+            if (simTime() >= startTime + 6)
+                statsDroppedPackets++;
+
+            delete thisMsg;
+        }
+    }
+}
+
+void Mac1609_4::handleLowerControl(cMessage* msg) {
+    if (msg->getKind() == MacToPhyInterface::TX_OVER) {
+
+        DBG_MAC << "Successfully transmitted a packet on " << lastAC
+                       << std::endl;
+
+        phy->setRadioState(Radio::RX);
+
+        //message was sent
+        //update EDCA queue. go into post-transmit backoff and set cwCur to cwMin
+        myEDCA[activeChannel]->postTransmit(lastAC, this);
+        //channel just turned idle.
+        //don't set the chan to idle. the PHY layer decides, not us.
+
+        if (guardActive()) {
+            throw cRuntimeError("We shouldnt have sent a packet in guard!");
+        }
+    } else if (msg->getKind() == Mac80211pToPhy11pInterface::CHANNEL_BUSY) {
+        channelBusy();
+    } else if (msg->getKind() == Mac80211pToPhy11pInterface::CHANNEL_IDLE) {
+        channelIdle();
+    } else if (msg->getKind() == Decider80211p::BITERROR
+            || msg->getKind() == Decider80211p::COLLISION) {
+        if (simTime() >= startTime + 6)
+            statsSNIRLostPackets++;
+        DBG_MAC << "A packet was not received due to biterrors" << std::endl;
+
+    } else if (msg->getKind() == Decider80211p::RECWHILESEND) {
+        if (simTime() >= startTime + 6)
+            statsTXRXLostPackets++;
+        DBG_MAC
+                       << "A packet was not received because we were sending while receiving"
+                       << std::endl;
+
+    } else if (msg->getKind() == MacToPhyInterface::RADIO_SWITCHING_OVER) {
+        DBG_MAC << "Phylayer said radio switching is done" << std::endl;
+
+    } else if (msg->getKind() == BaseDecider::PACKET_DROPPED) {
+        phy->setRadioState(Radio::RX);
+        DBG_MAC << "Phylayer said packet was dropped" << std::endl;
+
+    } else {
+        DBG_MAC << "Invalid control message type (type=NOTHING) : name="
+                       << msg->getName() << " modulesrc="
+                       << msg->getSenderModule()->getFullPath() << "."
+                       << std::endl;
+
+        assert(false);
+    }
+
+    if (msg->getKind() == Decider80211p::COLLISION) {
+        emit(sigCollision, true);
+    }
+
+    delete msg;
+}
+
+void Mac1609_4::setActiveChannel(t_channel state) {
+    activeChannel = state;
+    assert(state == type_CCH || (useSCH && state == type_SCH));
+}
+
+void Mac1609_4::finish() {
+//clean up queues.
+
+    for (std::map<t_channel, EDCA*>::iterator iter = myEDCA.begin();
+            iter != myEDCA.end(); iter++) {
+
+        statsNumInternalContention += iter->second->statsNumInternalContention;
+        statsNumBackoff += iter->second->statsNumBackoff;
+        statsSlotsBackoff += iter->second->statsSlotsBackoff;
+
+        iter->second->cleanUp();
+        delete iter->second;
+    }
+
+    myEDCA.clear();
+
+    if (simTime() - startTime > 6) {
+        recordScalar("ReceivedUnicastPackets", statsReceivedPackets);
+        recordScalar("ReceivedBroadcasts", statsReceivedBroadcasts);
+        recordScalar("SentPackets", statsSentPackets);
+        recordScalar("SNIRLostPackets", statsSNIRLostPackets);
+        recordScalar("RXTXLostPackets", statsTXRXLostPackets);
+        recordScalar("TotalLostPackets",
+                statsSNIRLostPackets + statsTXRXLostPackets);
+        recordScalar("DroppedPacketsInMac",
+                statsDroppedPackets + statsLifeTimeDropPackets);
+        recordScalar("TooLittleTime", statsNumTooLittleTime);
+        recordScalar("TimesIntoBackoff", statsNumBackoff);
+        recordScalar("SlotsBackoff", statsSlotsBackoff);
+        recordScalar("NumInternalContention", statsNumInternalContention);
+        recordScalar("totalBusyTime", statsTotalBusyTime.dbl());
+    }
+
+    if (nextMacEvent->isScheduled()) {
+        cancelAndDelete(nextMacEvent);
+    } else {
+        delete nextMacEvent;
+    }
+
+    if (nextChannelSwitch && nextChannelSwitch->isScheduled())
+        cancelAndDelete(nextChannelSwitch);
+
+    if (beaconWAVE) {
+
+        unsubscribe(sigChannelBusy, listenerWAVE);
+        delete listenerWAVE;
+
+    } else if (beaconETSI) {
+
+        if (simTime() - lastTimeChannelLoadTimeUpCalculated > 0) {
+            listenerETSI->calculateChannelLoad(
+                    simTime() - lastTimeChannelLoadTimeUpCalculated,
+                    totalChannelLoadTime, busyTimeVec, cbpVec, *currentState,
+                    false, testCaseNumber, startTime);
+        }
+
+        if (timer_NDL_timeDown->isScheduled()) {
+            cancelAndDelete(timer_NDL_timeDown);
+        } else {
+            delete timer_NDL_timeDown;
+        }
+
+        if (timer_NDL_timeUp) {
+            cancelAndDelete(timer_NDL_timeUp);
+        } else {
+            delete timer_NDL_timeUp;
+        }
+
+        if (timer_NDL_channelLoad->isScheduled()) {
+            cancelAndDelete(timer_NDL_channelLoad);
+        } else {
+            delete timer_NDL_channelLoad;
+        }
+
+        if (timer_DCC_Toff->isScheduled()) {
+            cancelAndDelete(timer_DCC_Toff);
+        } else {
+            delete timer_DCC_Toff;
+        }
+
+        unsubscribe(sigChannelBusy, listenerETSI);
+        delete listenerETSI;
+
+        if (simTime() - startTime > 6) {
+            recordScalar("TotalChannelLoadTime", totalChannelLoadTime.dbl());
+            recordScalar("Count RELAXED state", countRelaxed);
+            recordScalar("Count ACTIVE state", countActive);
+            recordScalar("Count RESTRICTIVE state", countRestrictive);
+            recordScalar("DroppedPacketsLifeTime", statsLifeTimeDropPackets);
+        }
+    }
+
+}
+
+void Mac1609_4::attachSignal(Mac80211Pkt* mac, simtime_t startTime,
+        double frequency, uint64_t datarate, double txPower_mW) {
+
+    simtime_t duration = getFrameDuration(mac->getBitLength());
+
+    Signal* s = createSignal(startTime, duration, txPower_mW, datarate,
+            frequency);
+    MacToPhyControlInfo* cinfo = new MacToPhyControlInfo(s);
+
+    mac->setControlInfo(cinfo);
+
+    if (strcmp(getParentModule()->getParentModule()->getFullName(), "node[0]")
+            == 0 && testCaseNumber > 1.0 && beaconETSI) {
+        std::cout << "attachSignal at " << simTime() << " currentState "
+                << currentState->stateType << " datarate " << datarate
+                << " frequency " << frequency << " txPowerInMW " << txPower_mW
+                << std::endl;
+    }
+
+    if (strcmp(getParentModule()->getParentModule()->getFullName(), "node[0]")
+            == 0 && testCaseNumber > 2.0 && beaconWAVE) {
+        std::cout << "attachSignal at " << simTime() << " datarate " << datarate
+                << " frequency " << frequency << " txPowerInMW " << txPower_mW
+                << std::endl;
+    }
+
+}
+
+Signal* Mac1609_4::createSignal(simtime_t start, simtime_t length, double power,
+        uint64_t bitrate, double frequency) {
+    simtime_t end = start + length;
+//create signal with start at current simtime and passed length
+    Signal* s = new Signal(start, length);
+
+//create and set tx power mapping
+    ConstMapping* txPowerMapping = createSingleFrequencyMapping(start, end,
+            frequency, 5.0e6, power);
+    s->setTransmissionPower(txPowerMapping);
+
+    Mapping* bitrateMapping = MappingUtils::createMapping(
+            DimensionSet::timeDomain(), Mapping::STEPS);
+
+    Argument pos(start);
+    bitrateMapping->setValue(pos, bitrate);
+
+    pos.setTime(phyHeaderLength / bitrate);
+    bitrateMapping->setValue(pos, bitrate);
+
+    s->setBitrate(bitrateMapping);
+
+    return s;
+}
+
+/* checks if guard is active */
+bool Mac1609_4::guardActive() const {
+    if (!useSCH)
+        return false;
+    if (simTime().dbl() - nextChannelSwitch->getSendingTime()
+            <= GUARD_INTERVAL_11P)
+        return true;
+    return false;
+}
+
+/* returns the time until the guard is over */
+simtime_t Mac1609_4::timeLeftTillGuardOver() const {
+    ASSERT(useSCH);
+    simtime_t sTime = simTime();
+    if (sTime - nextChannelSwitch->getSendingTime() <= GUARD_INTERVAL_11P) {
+        return GUARD_INTERVAL_11P
+                - (sTime - nextChannelSwitch->getSendingTime());
+    } else
+        return 0;
+}
+
+/* returns the time left in this channel window */
+simtime_t Mac1609_4::timeLeftInSlot() const {
+    ASSERT(useSCH);
+    return nextChannelSwitch->getArrivalTime() - simTime();
+}
+
+/* Will change the Service Channel on which the mac layer is listening and sending */
+void Mac1609_4::changeServiceChannel(int cN) {
+    ASSERT(useSCH);
+    if (cN != Channels::SCH1 && cN != Channels::SCH2 && cN != Channels::SCH3
+            && cN != Channels::SCH4) {
+        throw cRuntimeError("This Service Channel doesnt exit: %d", cN);
+    }
+
+    mySCH = cN;
+
+    if (activeChannel == type_SCH) {
+        //change to new chan immediately if we are in a SCH slot,
+        //otherwise it will switch to the new SCH upon next channel switch
+        phy11p->changeListeningFrequency(frequency[mySCH]);
+    }
+}
+
+void Mac1609_4::setTxPower(double txPower_mW) {
+
+    txPower = txPower_mW;
+
+}
+void Mac1609_4::setMCS(enum PHY_MCS mcs) {
+    ASSERT2(mcs != MCS_DEFAULT, "invalid MCS selected");
+    bitrate = getOfdmDatarate(mcs, BW_OFDM_10_MHZ);
+    setParametersForBitrate(bitrate);
+}
+
+void Mac1609_4::setCCAThreshold(double ccaThreshold_dBm) {
+
+    phy11p->setCCAThreshold(ccaThreshold_dBm);
+
+    if (beaconWAVE) {
+        if (simTime() >= startTime + 6)
+            carrierSenseVec.record(ccaThreshold_dBm);
+    }
+}
+
+void Mac1609_4::handleLowerMsg(cMessage* msg) {
+    Mac80211Pkt* macPkt = static_cast<Mac80211Pkt*>(msg);
+    ASSERT(macPkt);
+
+    WaveShortMessage* wsm =
+            dynamic_cast<WaveShortMessage*>(macPkt->decapsulate());
+
+//pass information about received frame to the upper layers
+    DeciderResult80211 *macRes =
+            dynamic_cast<DeciderResult80211 *>(PhyToMacControlInfo::getDeciderResult(
+                    msg));
+    ASSERT(macRes);
+    DeciderResult80211 *res = new DeciderResult80211(*macRes);
+    wsm->setControlInfo(new PhyToMacControlInfo(res));
+
+    long dest = macPkt->getDestAddr();
+
+    DBG_MAC << "Received frame name= " << macPkt->getName() << ", myState="
+                   << " src=" << macPkt->getSrcAddr() << " dst="
+                   << macPkt->getDestAddr() << " myAddr=" << myMacAddress
+                   << std::endl;
+
+    if (macPkt->getDestAddr() == myMacAddress) {
+        DBG_MAC << "Received a data packet addressed to me." << std::endl;
+
+        if (simTime() >= startTime + 6)
+            statsReceivedPackets++;
+        sendUp(wsm);
+    } else if (dest == LAddress::L2BROADCAST()) {
+
+        if (std::string(wsm->getName()).find("beacon") != std::string::npos) {
+            if (simTime() >= startTime + 6)
+                statsReceivedBroadcasts++;
+        }
+
+        sendUp(wsm);
+
+    } else {
+        DBG_MAC << "Packet not for me, deleting..." << std::endl;
+        delete wsm;
+    }
+    delete macPkt;
+}
+
+int Mac1609_4::EDCA::queuePacket(t_access_category ac, WaveShortMessage* msg) {
+
+    if (maxQueueSize && myQueues[ac].queue.size() >= maxQueueSize) {
+        delete msg;
+        return -1;
+    }
+    myQueues[ac].queue.push(msg);
+    return myQueues[ac].queue.size();
+}
+
+int Mac1609_4::EDCA::createQueue(int aifsn, int cwMin, int cwMax,
+        t_access_category ac) {
+
+    if (myQueues.find(ac) != myQueues.end()) {
+        throw cRuntimeError(
+                "You can only add one queue per Access Category per EDCA subsystem");
+    }
+
+    EDCAQueue newQueue(aifsn, cwMin, cwMax, ac);
+    myQueues[ac] = newQueue;
+
+    return ++numQueues;
+}
+
+Mac1609_4::t_access_category Mac1609_4::mapPriority(int prio) {
+//dummy mapping function
+    switch (prio) {
+    case 0:
+        return AC_BK;
+    case 1:
+        return AC_BE;
+    case 2:
+        return AC_VI;
+    case 3:
+        return AC_VO;
+    default:
+        throw cRuntimeError("MacLayer received a packet with unknown priority");
+        break;
+    }
+    return AC_VO;
+}
+
+WaveShortMessage* Mac1609_4::EDCA::initiateTransmit(simtime_t lastIdle,
+        bool beaconETSI) {
+
+//iterate through the queues to return the packet we want to send
+    WaveShortMessage* pktToSend = NULL;
+
+    simtime_t idleTime = simTime() - lastIdle;
+
+    DBG_MAC << "Initiating transmit at " << simTime()
+                   << ". I've been idle since " << idleTime << std::endl;
+
+    for (std::map<t_access_category, EDCAQueue>::iterator iter =
+            myQueues.begin(); iter != myQueues.end(); iter++) {
+        //It's always the most uptodate CAM in the Queue
+
+        if (iter->second.queue.size() != 0) {
+            if (idleTime >= iter->second.aifsn * SLOTLENGTH_11P + SIFS_11P
+                    && iter->second.txOP == true) {
+
+                DBG_MAC << "Queue " << iter->first << " is ready to send!"
+                               << std::endl;
+
+                iter->second.txOP = false;
+                //this queue is ready to send
+                if (pktToSend == NULL) {
+                    pktToSend = iter->second.queue.front();
+                } else {
+                    //there was already another packet ready. we have to go increase cw and go into backoff. It's called internal contention and its wonderful
+
+                    statsNumInternalContention++;
+                    iter->second.cwCur = std::min(iter->second.cwMax,
+                            iter->second.cwCur * 2);
+                    iter->second.currentBackoff = /*OWNER*/owner->intuniform(0,
+                            iter->second.cwCur);
+                    DBG_MAC << "Internal contention for queue " << iter->first
+                                   << " : " << iter->second.currentBackoff
+                                   << ". Increase cwCur to "
+                                   << iter->second.cwCur << std::endl;
+                }
+            }
+        }
+    }
+
+    if (pktToSend == NULL) {
+        throw cRuntimeError("No packet was ready");
+    }
+    return pktToSend;
+}
+
+simtime_t Mac1609_4::EDCA::startContent(simtime_t idleSince, bool guardActive) {
+
+    ASSERT(!guardActive); // no SCH in use, is alway false
+
+    DBG_MAC << "Restarting contention." << std::endl;
+
+    simtime_t nextEvent = -1;
+
+    simtime_t idleTime = SimTime().setRaw(
+            std::max((int64_t) 0, (simTime() - idleSince).raw()));
+
+    lastStart = idleSince;
+
+    DBG_MAC << "Channel is already idle for:" << idleTime << " since "
+                   << idleSince << std::endl;
+
+//this returns the nearest possible event in this EDCA subsystem after a busy channel
+
+    for (std::map<t_access_category, EDCAQueue>::iterator iter =
+            myQueues.begin(); iter != myQueues.end(); iter++) {
+        if (iter->second.queue.size() != 0) {
+
+            /* 1609_4 says that when attempting to send (backoff == 0) when guard is active, a random backoff is invoked */
+
+            //not used, guardActive always false, no SCH in use
+            if (guardActive == true && iter->second.currentBackoff == 0) {
+
+                ASSERT(false);
+                //cw is not increased
+                iter->second.currentBackoff = /*OWNER*/owner->intuniform(0,
+                        iter->second.cwCur);
+
+                statsNumBackoff++;
+            }
+
+            simtime_t DIFS = iter->second.aifsn * SLOTLENGTH_11P + SIFS_11P;
+
+            //the next possible time to send can be in the past if the channel was idle for a long time, meaning we COULD have sent earlier if we had a packet
+            simtime_t possibleNextEvent = DIFS
+                    + iter->second.currentBackoff * SLOTLENGTH_11P;
+
+            DBG_MAC << "START CONTENT Waiting Time for Queue " << iter->first
+                           << ":" << possibleNextEvent << "="
+                           << iter->second.aifsn << " * " << SLOTLENGTH_11P
+                           << " + " << SIFS_11P << "+"
+                           << iter->second.currentBackoff << "*"
+                           << SLOTLENGTH_11P << "; Idle time: " << idleTime
+                           << std::endl;
+
+            if (idleTime > possibleNextEvent) {
+                DBG_MAC << "Could have already send if we had it earlier"
+                               << std::endl;
+
+                //we could have already sent. round up to next boundary
+                simtime_t base = idleSince + DIFS;
+                possibleNextEvent = simTime()
+                        - simtime_t().setRaw(
+                                (simTime() - base).raw() % SLOTLENGTH_11P.raw())
+                        + SLOTLENGTH_11P;
+            } else {
+                //we are gonna send in the future
+                DBG_MAC << "Sending in the future" << std::endl;
+
+                possibleNextEvent = idleSince + possibleNextEvent;
+            }
+            nextEvent == -1 ? nextEvent = possibleNextEvent : nextEvent =
+                                      std::min(nextEvent, possibleNextEvent);
+        }
+    }
+    return nextEvent;
+}
+
+void Mac1609_4::EDCA::stopContent(bool allowBackoff, bool generateTxOp,
+        omnetpp::cModule * source) {
+//update all Queues
+
+    DBG_MAC << "Stopping Contention at " << simTime().raw() << std::endl;
+
+    simtime_t passedTime = simTime() - lastStart;
+
+    DBG_MAC << "Channel was idle for " << passedTime << std::endl;
+
+    lastStart = -1; //indicate that there was no last start
+
+    for (std::map<t_access_category, EDCAQueue>::iterator iter =
+            myQueues.begin(); iter != myQueues.end(); iter++) {
+        if (iter->second.currentBackoff != 0
+                || iter->second.queue.size() != 0) {
+            //check how many slots we already waited until the chan became busy
+
+            int oldBackoff = iter->second.currentBackoff;
+
+            std::string info;
+            if (passedTime < iter->second.aifsn * SLOTLENGTH_11P + SIFS_11P) {
+                //we didnt even make it one DIFS :(
+                info.append(" No DIFS");
+            } else {
+                //decrease the backoff by one because we made it longer than one DIFS
+                iter->second.currentBackoff--;
+
+                //check how many slots we waited after the first DIFS
+                int passedSlots = (int) ((passedTime
+                        - SimTime(
+                                iter->second.aifsn * SLOTLENGTH_11P + SIFS_11P))
+                        / SLOTLENGTH_11P);
+
+                DBG_MAC << "Passed slots after DIFS: " << passedSlots
+                               << std::endl;
+
+                if (iter->second.queue.size() == 0) {
+                    //this can be below 0 because of post transmit backoff -> backoff on empty queues will not generate macevents,
+                    //we dont want to generate a txOP for empty queues
+                    iter->second.currentBackoff -= std::min(
+                            iter->second.currentBackoff, passedSlots);
+                    info.append(" PostCommit Over");
+                } else {
+                    iter->second.currentBackoff -= passedSlots;
+                    if (iter->second.currentBackoff <= -1) {
+                        if (generateTxOp) {
+                            iter->second.txOP = true;
+                            info.append(" TXOP");
+                        }
+                        //else: this packet couldnt be sent because there was too little time. we could have generated a txop, but the channel switched
+                        iter->second.currentBackoff = 0;
+                    }
+
+                }
+            }
+            DBG_MAC << "Updating backoff for Queue " << iter->first << ": "
+                           << oldBackoff << " -> "
+                           << iter->second.currentBackoff << info << std::endl;
+        }
+    }
+}
+void Mac1609_4::EDCA::backoff(t_access_category ac, cModule * source) {
+    myQueues[ac].currentBackoff = /*OWNER*/owner->intuniform(0,
+            myQueues[ac].cwCur);
+    statsSlotsBackoff += myQueues[ac].currentBackoff;
+
+    statsNumBackoff++;
+    DBG_MAC
+                   << "Going into Backoff because channel was busy when new packet arrived from upperLayer"
+                   << std::endl;
+
+}
+
+void Mac1609_4::EDCA::postTransmit(t_access_category ac, cModule * source) {
+    delete myQueues[ac].queue.front();
+    myQueues[ac].queue.pop();
+    myQueues[ac].cwCur = myQueues[ac].cwMin;
+//post transmit backoff
+    myQueues[ac].currentBackoff = /*OWNER*/owner->intuniform(0,
+            myQueues[ac].cwCur);
+    statsSlotsBackoff += myQueues[ac].currentBackoff;
+
+    statsNumBackoff++;
+    DBG_MAC << "Queue " << ac << " will go into post-transmit backoff for "
+                   << myQueues[ac].currentBackoff << " slots" << std::endl;
+
+}
+
+void Mac1609_4::EDCA::cleanUp() {
+    for (std::map<t_access_category, EDCAQueue>::iterator iter =
+            myQueues.begin(); iter != myQueues.end(); iter++) {
+        while (iter->second.queue.size() != 0) {
+            delete iter->second.queue.front();
+            iter->second.queue.pop();
+        }
+    }
+    myQueues.clear();
+}
+
+void Mac1609_4::EDCA::revokeTxOPs() {
+    for (std::map<t_access_category, EDCAQueue>::iterator iter =
+            myQueues.begin(); iter != myQueues.end(); iter++) {
+        if (iter->second.txOP == true) {
+            iter->second.txOP = false;
+            iter->second.currentBackoff = 0;
+        }
+    }
+}
+
+void Mac1609_4::channelBusySelf(bool generateTxOp) {
+
+//the channel turned busy because we're sending. we don't want our queues to go into backoff
+//internal contention is already handled in initiateTransmission
+
+    if (!idleChannel)
+        return;
+    idleChannel = false;
+    DBG_MAC << "Channel turned busy: Switch or Self-Send" << std::endl;
+
+    lastBusy = simTime();
+
+//channel turned busy
+    if (nextMacEvent->isScheduled() == true) {
+        cancelEvent(nextMacEvent);
+    } else {
+        //the edca subsystem was not doing anything anyway.
+    }
+    myEDCA[activeChannel]->stopContent(false, generateTxOp, this);
+
+    emit(sigChannelBusy, true);
+}
+
+void Mac1609_4::channelBusy() {
+
+    if (!idleChannel)
+        return;
+
+//the channel turned busy because someone else is sending
+    idleChannel = false;
+    DBG_MAC << "Channel turned busy: External sender" << std::endl;
+    lastBusy = simTime();
+
+//channel turned busy
+    if (nextMacEvent->isScheduled() == true) {
+        cancelEvent(nextMacEvent);
+    } else {
+        //the edca subsystem was not doing anything anyway.
+    }
+    myEDCA[activeChannel]->stopContent(true, false, this);
+
+    emit(sigChannelBusy, true);
+}
+
+void Mac1609_4::channelIdle(bool afterSwitch) {
+
+    DBG_MAC << "Channel turned idle: Switch: " << afterSwitch << std::endl;
+
+    if (nextMacEvent->isScheduled() == true) {
+        //this rare case can happen when another node's time has such a big offset that the node sent a packet although we already changed the channel
+        //the workaround is not trivial and requires a lot of changes to the phy and decider
+        return;
+        //throw cRuntimeError("channel turned idle but contention timer was scheduled!");
+    }
+
+    idleChannel = true;
+
+    simtime_t delay = 0;
+
+//account for 1609.4 guards
+    if (afterSwitch) {
+        //	delay = GUARD_INTERVAL_11P;
+    }
+    if (useSCH) {
+        delay += timeLeftTillGuardOver();
+    }
+
+//channel turned idle! lets start contention!
+    lastIdle = delay + simTime();
+
+    if (simTime() >= startTime + 6)
+        statsTotalBusyTime += simTime() - lastBusy;
+
+//get next Event from current EDCA subsystem
+    simtime_t nextEvent = myEDCA[activeChannel]->startContent(lastIdle,
+            guardActive());
+    if (simTime() >= startTime + 6)
+        nextMacEventTime.record(nextEvent);
+
+    if (nextEvent != -1) {
+        if ((!useSCH) || (nextEvent < nextChannelSwitch->getArrivalTime())) {
+
+            scheduleAt(nextEvent, nextMacEvent);
+
+            DBG_MAC << "next Event is at "
+                           << nextMacEvent->getArrivalTime().raw() << std::endl;
+        } else {
+            DBG_MAC
+                           << "Too little time in this interval. will not schedule macEvent"
+                           << std::endl;
+
+            statsNumTooLittleTime++;
+            myEDCA[activeChannel]->revokeTxOPs();
+        }
+    } else {
+        DBG_MAC << "I don't have any new events in this EDCA sub system"
+                       << std::endl;
+    }
+
+    emit(sigChannelBusy, false);
+
+}
+
+double Mac1609_4::getTxPower() {
+    return txPower;
+}
+
+uint64_t Mac1609_4::getBitrate() {
+    return bitrate;
+}
+
+void Mac1609_4::setParametersForBitrate(uint64_t bitrate) {
+    for (unsigned int i = 0; i < NUM_BITRATES_80211P; i++) {
+        if (bitrate == BITRATES_80211P[i]) {
+            n_dbps = N_DBPS_80211P[i];
+            return;
+        }
+    }
+    throw cRuntimeError(
+            "Chosen Bitrate is not valid for 802.11p: Valid rates are: 3Mbps, 4.5Mbps, 6Mbps, 9Mbps, 12Mbps, 18Mbps, 24Mbps and 27Mbps. Please adjust your omnetpp.ini file accordingly.");
+}
+
+simtime_t Mac1609_4::getFrameDuration(int payloadLengthBits,
+        enum PHY_MCS mcs) const {
+    simtime_t duration;
+    if (mcs == MCS_DEFAULT) {
+// calculate frame duration according to Equation (17-29) of the IEEE 802.11-2007 standard
+        duration = PHY_HDR_PREAMBLE_DURATION + PHY_HDR_PLCPSIGNAL_DURATION
+                + T_SYM_80211P * ceil((16 + payloadLengthBits + 6) / (n_dbps));
+    } else {
+        uint32_t ndbps = getNDBPS(mcs);
+        duration = PHY_HDR_PREAMBLE_DURATION + PHY_HDR_PLCPSIGNAL_DURATION
+                + T_SYM_80211P * ceil((16 + payloadLengthBits + 6) / (ndbps));
+    }
+
+    return duration;
+}
+

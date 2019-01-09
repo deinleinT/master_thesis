@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<!-- debug config -->
+<launch>
+	<copy file="autobahnkreuz.net.xml" />
+	<copy file="autobahnkreuz_high.rou.xml" />
+	<copy file="autobahnkreuz_high.sumo.cfg" type="config" />
+</launch>
+

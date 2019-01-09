@@ -1,0 +1,137 @@
+<routes>
+
+<vTypeDistribution id="cars">
+<vType id="truck1_0" accel="0.60" decel="4.50" sigma="0.75" length="8.54" minGap="0.00" maxSpeed="39.96" vClass="transport" guiShape="transport/semitrailer" probability="0.01" />
+<vType id="truck1_1" accel="0.60" decel="4.50" sigma="0.75" length="8.86" minGap="0.00" maxSpeed="40.00" vClass="transport" guiShape="transport/semitrailer" probability="0.01" />
+<vType id="truck1_2" accel="0.60" decel="4.50" sigma="0.75" length="8.93" minGap="0.00" maxSpeed="39.97" vClass="transport" guiShape="transport/semitrailer" probability="0.01" />
+<vType id="truck1_3" accel="0.60" decel="4.50" sigma="0.75" length="8.76" minGap="0.00" maxSpeed="39.94" vClass="transport" guiShape="transport/semitrailer" probability="0.01" />
+<vType id="truck1_4" accel="0.60" decel="4.50" sigma="0.75" length="8.14" minGap="0.00" maxSpeed="40.01" vClass="transport" guiShape="transport/semitrailer" probability="0.01" />
+<vType id="truck2_0" accel="0.60" decel="4.50" sigma="0.75" length="16.14" minGap="0.00" maxSpeed="33.00" vClass="transport" guiShape="transport/semitrailer" probability="0.01" />
+<vType id="truck2_1" accel="0.60" decel="4.50" sigma="0.75" length="16.34" minGap="0.00" maxSpeed="32.92" vClass="transport" guiShape="transport/semitrailer" probability="0.01" />
+<vType id="truck2_2" accel="0.60" decel="4.50" sigma="0.75" length="16.20" minGap="0.00" maxSpeed="32.93" vClass="transport" guiShape="transport/semitrailer" probability="0.01" />
+<vType id="truck2_3" accel="0.60" decel="4.50" sigma="0.75" length="16.71" minGap="0.00" maxSpeed="32.99" vClass="transport" guiShape="transport/semitrailer" probability="0.01" />
+<vType id="truck2_4" accel="0.60" decel="4.50" sigma="0.75" length="16.84" minGap="0.00" maxSpeed="32.98" vClass="transport" guiShape="transport/semitrailer" probability="0.01" />
+<vType id="truck3_0" accel="0.50" decel="3.50" sigma="0.85" length="18.50" minGap="0.00" maxSpeed="29.97" vClass="transport" guiShape="transport/trailer" probability="0.01" />
+<vType id="truck3_1" accel="0.50" decel="3.50" sigma="0.85" length="18.94" minGap="0.00" maxSpeed="29.92" vClass="transport" guiShape="transport/trailer" probability="0.01" />
+<vType id="truck3_2" accel="0.50" decel="3.50" sigma="0.85" length="18.76" minGap="0.00" maxSpeed="30.09" vClass="transport" guiShape="transport/trailer" probability="0.01" />
+<vType id="truck3_3" accel="0.50" decel="3.50" sigma="0.85" length="18.82" minGap="0.00" maxSpeed="29.94" vClass="transport" guiShape="transport/trailer" probability="0.01" />
+<vType id="truck3_4" accel="0.50" decel="3.50" sigma="0.85" length="19.09" minGap="0.00" maxSpeed="29.95" vClass="transport" guiShape="transport/trailer" probability="0.01" />
+<vType id="car0_0" accel="0.70" decel="3.50" sigma="0.35" length="4.26" minGap="0.00" maxSpeed="49.97" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_1" accel="0.70" decel="3.50" sigma="0.35" length="4.67" minGap="0.00" maxSpeed="50.09" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_2" accel="0.70" decel="3.50" sigma="0.35" length="4.19" minGap="0.00" maxSpeed="49.95" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_3" accel="0.70" decel="3.50" sigma="0.35" length="4.33" minGap="0.00" maxSpeed="49.91" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_4" accel="0.70" decel="3.50" sigma="0.35" length="4.22" minGap="0.00" maxSpeed="50.05" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_5" accel="0.70" decel="3.50" sigma="0.35" length="4.19" minGap="0.00" maxSpeed="50.05" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_6" accel="0.70" decel="3.50" sigma="0.35" length="4.21" minGap="0.00" maxSpeed="49.97" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_7" accel="0.70" decel="3.50" sigma="0.35" length="4.60" minGap="0.00" maxSpeed="49.98" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_8" accel="0.70" decel="3.50" sigma="0.35" length="4.38" minGap="0.00" maxSpeed="50.00" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_9" accel="0.70" decel="3.50" sigma="0.35" length="4.20" minGap="0.00" maxSpeed="49.92" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_10" accel="0.70" decel="3.50" sigma="0.35" length="4.47" minGap="0.00" maxSpeed="50.08" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_11" accel="0.70" decel="3.50" sigma="0.35" length="4.46" minGap="0.00" maxSpeed="50.08" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_12" accel="0.70" decel="3.50" sigma="0.35" length="3.93" minGap="0.00" maxSpeed="49.96" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_13" accel="0.70" decel="3.50" sigma="0.35" length="4.48" minGap="0.00" maxSpeed="49.97" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_14" accel="0.70" decel="3.50" sigma="0.35" length="4.64" minGap="0.00" maxSpeed="50.01" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_15" accel="0.70" decel="3.50" sigma="0.35" length="4.47" minGap="0.00" maxSpeed="49.92" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_16" accel="0.70" decel="3.50" sigma="0.35" length="4.04" minGap="0.00" maxSpeed="49.91" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_17" accel="0.70" decel="3.50" sigma="0.35" length="4.71" minGap="0.00" maxSpeed="50.02" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_18" accel="0.70" decel="3.50" sigma="0.35" length="4.25" minGap="0.00" maxSpeed="49.98" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_19" accel="0.70" decel="3.50" sigma="0.35" length="4.24" minGap="0.00" maxSpeed="49.99" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_20" accel="0.70" decel="3.50" sigma="0.35" length="4.51" minGap="0.00" maxSpeed="49.94" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_21" accel="0.70" decel="3.50" sigma="0.35" length="4.14" minGap="0.00" maxSpeed="49.96" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_22" accel="0.70" decel="3.50" sigma="0.35" length="4.17" minGap="0.00" maxSpeed="50.05" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_23" accel="0.70" decel="3.50" sigma="0.35" length="4.43" minGap="0.00" maxSpeed="49.96" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_24" accel="0.70" decel="3.50" sigma="0.35" length="4.56" minGap="0.00" maxSpeed="50.08" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_25" accel="0.70" decel="3.50" sigma="0.35" length="4.72" minGap="0.00" maxSpeed="49.99" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_26" accel="0.70" decel="3.50" sigma="0.35" length="4.13" minGap="0.00" maxSpeed="50.02" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_27" accel="0.70" decel="3.50" sigma="0.35" length="4.75" minGap="0.00" maxSpeed="49.90" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_28" accel="0.70" decel="3.50" sigma="0.35" length="4.86" minGap="0.00" maxSpeed="49.99" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_29" accel="0.70" decel="3.50" sigma="0.35" length="4.10" minGap="0.00" maxSpeed="50.01" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_30" accel="0.70" decel="3.50" sigma="0.35" length="3.94" minGap="0.00" maxSpeed="50.09" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_31" accel="0.70" decel="3.50" sigma="0.35" length="4.15" minGap="0.00" maxSpeed="49.97" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_32" accel="0.70" decel="3.50" sigma="0.35" length="4.21" minGap="0.00" maxSpeed="49.95" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_33" accel="0.70" decel="3.50" sigma="0.35" length="4.30" minGap="0.00" maxSpeed="50.09" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_34" accel="0.70" decel="3.50" sigma="0.35" length="4.12" minGap="0.00" maxSpeed="49.95" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_35" accel="0.70" decel="3.50" sigma="0.35" length="4.06" minGap="0.00" maxSpeed="50.07" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_36" accel="0.70" decel="3.50" sigma="0.35" length="4.04" minGap="0.00" maxSpeed="50.06" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_37" accel="0.70" decel="3.50" sigma="0.35" length="4.23" minGap="0.00" maxSpeed="49.92" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_38" accel="0.70" decel="3.50" sigma="0.35" length="4.75" minGap="0.00" maxSpeed="50.02" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_39" accel="0.70" decel="3.50" sigma="0.35" length="4.32" minGap="0.00" maxSpeed="50.00" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_40" accel="0.70" decel="3.50" sigma="0.35" length="4.39" minGap="0.00" maxSpeed="49.98" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_41" accel="0.70" decel="3.50" sigma="0.35" length="4.34" minGap="0.00" maxSpeed="49.91" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_42" accel="0.70" decel="3.50" sigma="0.35" length="4.02" minGap="0.00" maxSpeed="49.92" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_43" accel="0.70" decel="3.50" sigma="0.35" length="4.85" minGap="0.00" maxSpeed="50.00" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_44" accel="0.70" decel="3.50" sigma="0.35" length="4.17" minGap="0.00" maxSpeed="49.93" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_45" accel="0.70" decel="3.50" sigma="0.35" length="4.49" minGap="0.00" maxSpeed="49.94" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_46" accel="0.70" decel="3.50" sigma="0.35" length="4.39" minGap="0.00" maxSpeed="50.01" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_47" accel="0.70" decel="3.50" sigma="0.35" length="4.38" minGap="0.00" maxSpeed="50.05" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_48" accel="0.70" decel="3.50" sigma="0.35" length="4.51" minGap="0.00" maxSpeed="50.05" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_49" accel="0.70" decel="3.50" sigma="0.35" length="4.39" minGap="0.00" maxSpeed="49.99" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_50" accel="0.70" decel="3.50" sigma="0.35" length="4.05" minGap="0.00" maxSpeed="50.02" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_51" accel="0.70" decel="3.50" sigma="0.35" length="4.25" minGap="0.00" maxSpeed="50.06" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_52" accel="0.70" decel="3.50" sigma="0.35" length="4.09" minGap="0.00" maxSpeed="49.95" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_53" accel="0.70" decel="3.50" sigma="0.35" length="4.32" minGap="0.00" maxSpeed="49.95" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_54" accel="0.70" decel="3.50" sigma="0.35" length="4.53" minGap="0.00" maxSpeed="49.95" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_55" accel="0.70" decel="3.50" sigma="0.35" length="4.88" minGap="0.00" maxSpeed="50.10" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_56" accel="0.70" decel="3.50" sigma="0.35" length="4.79" minGap="0.00" maxSpeed="50.09" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_57" accel="0.70" decel="3.50" sigma="0.35" length="4.54" minGap="0.00" maxSpeed="50.00" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_58" accel="0.70" decel="3.50" sigma="0.35" length="4.31" minGap="0.00" maxSpeed="50.07" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_59" accel="0.70" decel="3.50" sigma="0.35" length="4.15" minGap="0.00" maxSpeed="49.98" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_60" accel="0.70" decel="3.50" sigma="0.35" length="4.22" minGap="0.00" maxSpeed="49.93" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_61" accel="0.70" decel="3.50" sigma="0.35" length="4.56" minGap="0.00" maxSpeed="49.95" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_62" accel="0.70" decel="3.50" sigma="0.35" length="4.08" minGap="0.00" maxSpeed="49.96" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_63" accel="0.70" decel="3.50" sigma="0.35" length="4.85" minGap="0.00" maxSpeed="50.06" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car0_64" accel="0.70" decel="3.50" sigma="0.35" length="3.91" minGap="0.00" maxSpeed="49.97" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car1_0" accel="0.90" decel="4.50" sigma="0.55" length="5.06" minGap="0.00" maxSpeed="45.00" vClass="passenger" guiShape="passenger/van" probability="0.01" />
+<vType id="car1_1" accel="0.90" decel="4.50" sigma="0.55" length="5.47" minGap="0.00" maxSpeed="44.98" vClass="passenger" guiShape="passenger/van" probability="0.01" />
+<vType id="car1_2" accel="0.90" decel="4.50" sigma="0.55" length="5.09" minGap="0.00" maxSpeed="45.00" vClass="passenger" guiShape="passenger/van" probability="0.01" />
+<vType id="car1_3" accel="0.90" decel="4.50" sigma="0.55" length="5.23" minGap="0.00" maxSpeed="44.99" vClass="passenger" guiShape="passenger/van" probability="0.01" />
+<vType id="car1_4" accel="0.90" decel="4.50" sigma="0.55" length="5.68" minGap="0.00" maxSpeed="44.97" vClass="passenger" guiShape="passenger/van" probability="0.01" />
+<vType id="car2_0" accel="0.90" decel="4.50" sigma="0.55" length="4.28" minGap="0.00" maxSpeed="57.06" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car2_1" accel="0.90" decel="4.50" sigma="0.55" length="4.03" minGap="0.00" maxSpeed="57.07" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car2_2" accel="0.90" decel="4.50" sigma="0.55" length="3.97" minGap="0.00" maxSpeed="56.98" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car2_3" accel="0.90" decel="4.50" sigma="0.55" length="4.11" minGap="0.00" maxSpeed="57.01" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car2_4" accel="0.90" decel="4.50" sigma="0.55" length="3.97" minGap="0.00" maxSpeed="57.02" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car2_5" accel="0.90" decel="4.50" sigma="0.55" length="3.98" minGap="0.00" maxSpeed="57.00" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car2_6" accel="0.90" decel="4.50" sigma="0.55" length="3.90" minGap="0.00" maxSpeed="56.96" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car2_7" accel="0.90" decel="4.50" sigma="0.55" length="4.26" minGap="0.00" maxSpeed="57.00" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car2_8" accel="0.90" decel="4.50" sigma="0.55" length="4.13" minGap="0.00" maxSpeed="57.03" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car2_9" accel="0.90" decel="4.50" sigma="0.55" length="4.03" minGap="0.00" maxSpeed="56.91" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car2_10" accel="0.90" decel="4.50" sigma="0.55" length="4.76" minGap="0.00" maxSpeed="57.07" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car2_11" accel="0.90" decel="4.50" sigma="0.55" length="4.53" minGap="0.00" maxSpeed="57.00" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car2_12" accel="0.90" decel="4.50" sigma="0.55" length="4.39" minGap="0.00" maxSpeed="56.96" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car2_13" accel="0.90" decel="4.50" sigma="0.55" length="4.42" minGap="0.00" maxSpeed="57.08" vClass="passenger" guiShape="passenger" probability="0.01" />
+<vType id="car2_14" accel="0.90" decel="4.50" sigma="0.55" length="4.58" minGap="0.00" maxSpeed="57.09" vClass="passenger" guiShape="passenger" probability="0.01" />
+</vTypeDistribution>
+
+   <route id="from1to1" multi_ref="x" edges="1_1_2 1_2_3 1_3_4 1_4_5 1_5_6 1_6_7"/>
+   <route id="from3to3" multi_ref="x" edges="3_7_6 3_6_5 3_5_4 3_4_3 3_3_2 3_2_1"/>
+   <route id="from2to2" multi_ref="x" edges="2_1_2 2_2_3 2_3_4 2_4_5 2_5_6 2_6_7"/>
+   <route id="from4to4" multi_ref="x" edges="4_7_6 4_6_5 4_5_4 4_4_3 4_3_2 4_2_1"/>
+
+   <route id="from1to2" multi_ref="x" edges="1_1_2 1_2-2_6 2_6_7"/>
+   <route id="from3to4" multi_ref="x" edges="3_7_6 3_6-4_2 4_2_1"/>
+   <route id="from2to3" multi_ref="x" edges="2_1_2 2_2-3_2 3_2_1"/>
+   <route id="from4to1" multi_ref="x" edges="4_7_6 4_6-1_6 1_6_7"/>
+
+   <route id="from1to4" multi_ref="x" edges="1_1_2 1_2_3 1_3_4 1_4_5 1_5-4_5 4_5_4 4_4_3 4_3_2 4_2_1"/>
+   <route id="from2to1" multi_ref="x" edges="2_1_2 2_2_3 2_3_4 2_4_5 2_5-1_3 1_3_4 1_4_5 1_5_6 1_6_7"/>
+   <route id="from3to2" multi_ref="x" edges="3_7_6 3_6_5 3_5_4 3_4_3 3_3-2_3 2_3_4 2_4_5 2_5_6 2_6_7"/>
+   <route id="from4to3" multi_ref="x" edges="4_7_6 4_6_5 4_5_4 4_4_3 4_3-3_5 3_5_4 3_4_3 3_3_2 3_2_1"/>
+
+    <flow id="cars1" type="cars" route="from1to1" begin="0" end="100" period="3" departLane="best" departSpeed="max"/>
+    <flow id="cars2" type="cars" route="from2to2" begin="0" end="100" period="3" departLane="best" departSpeed="max"/>
+    <flow id="cars3" type="cars" route="from3to3" begin="0" end="100" period="3" departLane="best" departSpeed="max"/>
+    <flow id="cars4" type="cars" route="from4to4" begin="0" end="100" period="3" departLane="best" departSpeed="max"/>
+
+    <flow id="cars5" type="cars" route="from1to2" begin="0" end="100" period="9" departLane="best" departSpeed="max"/>
+    <flow id="cars6" type="cars" route="from2to3" begin="0" end="100" period="9" departLane="best" departSpeed="max"/>
+    <flow id="cars7" type="cars" route="from3to4" begin="0" end="100" period="9" departLane="best" departSpeed="max"/>
+    <flow id="cars8" type="cars" route="from4to1" begin="0" end="100" period="9" departLane="best" departSpeed="max"/>
+
+    <flow id="cars9" type="cars" route="from1to4" begin="0" end="100" period="9" departLane="best" departSpeed="max"/>
+    <flow id="cars10" type="cars" route="from2to1" begin="0" end="100" period="9" departLane="best" departSpeed="max"/>
+    <flow id="cars11" type="cars" route="from3to2" begin="0" end="100" period="9" departLane="best" departSpeed="max"/>
+    <flow id="cars12" type="cars" route="from4to3" begin="0" end="100" period="9" departLane="best" departSpeed="max"/>
+
+
+</routes>

@@ -1,0 +1,11 @@
+<routes>
+
+<vTypeDistribution id="cars">
+<vType id="car2_0" accel="0.50" decel="4.50" sigma="0.55" length="4.28" minGap="0.00" maxSpeed="25.00" vClass="passenger" guiShape="passenger" probability="0.01" />
+</vTypeDistribution>
+
+   <route id="from1to1" multi_ref="x" edges="1_1_2 1_2_3 1_3_4 1_4_5 1_5_6 1_6_7"/>
+   
+   <flow id="cars1" type="cars" route="from1to1" begin="0" end="200" period="55" departLane="best" departSpeed="5"/>
+    
+</routes>
